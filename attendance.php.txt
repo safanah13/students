@@ -1,0 +1,866 @@
+<?php
+require_once 'config/db_config.php';
+
+// التحقق من تسجيل دخول المستخدم
+if (!isLoggedIn()) {
+    header("Location: index.php");
+    exit;
+}
+
+$user_name = $_SESSION['full_name'];
+$user_role = $_SESSION['role'] == 'admin' ? 'مدير النظام' : 'معلم';
+?>
+
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام إدارة الفصول والحضور</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Cairo', sans-serif;
+        }
+
+        body {
+            background-color: #1a237e;
+            color: white;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* إضافة شريط علوي للمستخدم */
+        .user-bar {
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 10px 20px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-info i {
+            font-size: 20px;
+            color: #ffd700;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 20px;
+        }
+
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+
+        .nav-links a:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-links a.active {
+            background-color: #ffd700;
+            color: #1a237e;
+        }
+
+        h1 {
+            text-align: center;
+            margin: 20px 0;
+            color: #ffd700;
+        }
+
+        /* تنسيق قسم الفصول */
+        .school-section {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: right;
+        }
+
+        .school-title {
+            color: white;
+            margin-bottom: 20px;
+        }
+        
+        .classes-grid {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .class-card {
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 2px solid #ffd700;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 150px;
+        }
+
+        .class-card.selected {
+            background-color: #ffd700;
+            color: #1a237e;
+        }
+
+        .class-card:hover {
+            transform: scale(1.05);
+        }
+
+        /* تنسيقات الجدول والأزرار */
+        .attendance-section {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .attendance-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .attendance-table th, 
+        .attendance-table td {
+            border: 1px solid #ffd700;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .attendance-table th {
+            background-color: #ffd700;
+            color: #1a237e;
+            font-weight: bold;
+        }
+
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            border: none;
+            min-width: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .present-btn { background-color: #4CAF50; color: white; }
+        .absent-btn { background-color: #f44336; color: white; }
+        .print-btn { background-color: #607D8B; color: white; }
+        .behavior-btn { background-color: #FF9800; color: white; }
+        .whatsapp-btn { background-color: #25D366; color: white; }
+        .report-btn { background-color: #2196F3; color: white; }
+        .excel-btn { background-color: #4CAF50; color: white; }
+        .import-btn { background-color: #FF9800; color: white; }
+
+        .save-button {
+            display: block;
+            width: 200px;
+            margin: 30px auto;
+            padding: 15px;
+            background-color: #ffd700;
+            color: #1a237e;
+            border: none;
+            border-radius: 25px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .save-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .attendance-history {
+            font-size: 12px;
+            color: #FFD700;
+            margin-top: 5px;
+        }
+
+        .date-selector {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: flex-start;
+        }
+
+        .date-selector label {
+            color: white;
+        }
+
+        .date-selector input[type="date"] {
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #ffd700;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .header-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .attendance-table {
+                font-size: 14px;
+            }
+            
+            .action-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="user-bar">
+            <div class="user-info">
+                <i class="fas fa-user-circle"></i>
+                <span><?php echo $user_name; ?> (<?php echo $user_role; ?>)</span>
+            </div>
+            
+            <div class="nav-links">
+                <a href="dashboard.php">لوحة التحكم</a>
+                <a href="attendance.php" class="active">الحضور والغياب</a>
+                <a href="reports.php">التقارير</a>
+                <?php if (isAdmin()): ?>
+                <a href="users.php">المستخدمون</a>
+                <?php endif; ?>
+                <a href="logout.php">تسجيل الخروج</a>
+            </div>
+        </div>
+        
+        <h1>نظام إدارة الفصول والحضور</h1>
+        
+        <div class="school-section">
+            <h2 class="school-title">الفصول الدراسية</h2>
+            <div class="classes-grid" id="classesGrid">
+                <!-- سيتم إضافة الفصول ديناميكيًا عبر JavaScript -->
+                <div class="class-card loading">جاري التحميل...</div>
+            </div>
+        </div>
+        
+        <div id="attendanceSection" class="attendance-section" style="display: none;">
+            <h2 id="selectedClassTitle">سجل الحضور والغياب</h2>
+            
+            <div class="date-selector">
+                <label for="attendanceDate">التاريخ:</label>
+                <input type="date" id="attendanceDate" value="<?php echo date('Y-m-d'); ?>" onchange="dateChanged()">
+            </div>
+            
+            <div class="header-actions">
+                <button class="btn report-btn" onclick="generateClassReport()">
+                    <i class="fas fa-chart-bar"></i> إحصائية الفصل
+                </button>
+                <button class="btn excel-btn" onclick="downloadExcelTemplate()">
+                    <i class="fas fa-file-download"></i> تحميل نموذج الاستيراد
+                </button>
+                <button class="btn import-btn" onclick="importFromExcel()">
+                    <i class="fas fa-file-upload"></i> استيراد من اكسل
+                </button>
+                <input type="file" id="excelFileInput" style="display: none" accept=".xlsx,.xls" onchange="handleExcelFile(event)">
+                <button class="btn excel-btn" onclick="exportAttendance()">
+                    <i class="fas fa-file-export"></i> تصدير البيانات
+                </button>
+            </div>
+            
+            <table class="attendance-table">
+                <thead>
+                    <tr>
+                        <th>رقم الطالب</th>
+                        <th>اسم الطالب</th>
+                        <th>الحالة</th>
+                        <th>الإجراءات</th>
+                    </tr>
+                </thead>
+                <tbody id="studentsTableBody">
+                    <!-- سيتم ملء هذا الجدول ديناميكيًا عبر JavaScript -->
+                </tbody>
+            </table>
+            
+            <button class="save-button" onclick="saveAllAttendance()">حفظ الحضور</button>
+        </div>
+    </div>
+
+    <script>
+        // المتغيرات العامة
+        let studentsData = [];
+        let currentClass = null;
+        let currentClassId = 0;
+        let attendanceDate = document.getElementById('attendanceDate').value;
+
+        // عند تحميل الصفحة
+        document.addEventListener('DOMContentLoaded', function() {
+            // جلب الفصول المتاحة للمستخدم
+            fetchClasses();
+        });
+
+        // تغيير التاريخ
+        function dateChanged() {
+            attendanceDate = document.getElementById('attendanceDate').value;
+            if (currentClassId > 0) {
+                fetchStudents(currentClassId);
+            }
+        }
+
+        // جلب قائمة الفصول من الخادم
+        async function fetchClasses() {
+            try {
+                const response = await fetch('api/classes.php');
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayClasses(data.classes);
+                } else {
+                    showError('فشل في جلب الفصول: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                showError('فشل في الاتصال بالخادم: ' + error.message);
+            }
+        }
+
+        // عرض الفصول في الواجهة
+        function displayClasses(classes) {
+            const classesGrid = document.getElementById('classesGrid');
+            classesGrid.innerHTML = '';
+            
+            if (classes.length === 0) {
+                classesGrid.innerHTML = '<div class="class-card">لا توجد فصول متاحة</div>';
+                return;
+            }
+            
+            classes.forEach(classItem => {
+                const classCard = document.createElement('div');
+                classCard.className = 'class-card';
+                classCard.textContent = classItem.name;
+                classCard.dataset.id = classItem.id;
+                classCard.onclick = function() {
+                    selectClass(classItem.id, classItem.name);
+                };
+                classesGrid.appendChild(classCard);
+            });
+        }
+
+        // اختيار فصل معين
+        function selectClass(classId, className) {
+            currentClassId = classId;
+            currentClass = className;
+            
+            // تحديث المظهر المرئي للبطاقات
+            document.querySelectorAll('.class-card').forEach(card => {
+                card.classList.remove('selected');
+                if (card.dataset.id == classId) {
+                    card.classList.add('selected');
+                }
+            });
+            
+            // تحديث عنوان القسم
+            document.getElementById('selectedClassTitle').textContent = `سجل الحضور والغياب - ${className}`;
+            
+            // إظهار قسم الحضور
+            document.getElementById('attendanceSection').style.display = 'block';
+            
+            // جلب بيانات الطلاب للفصل المختار
+            fetchStudents(classId);
+        }
+
+        // جلب بيانات الطلاب لفصل معين
+        async function fetchStudents(classId) {
+            try {
+                const response = await fetch(`api/students.php?class_id=${classId}&date=${attendanceDate}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    studentsData = data.students;
+                    displayStudentsData();
+                } else {
+                    showError('فشل في جلب بيانات الطلاب: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                showError('فشل في الاتصال بالخادم: ' + error.message);
+            }
+        }
+
+        // عرض بيانات الطلاب في الجدول
+        function displayStudentsData() {
+            const tableBody = document.getElementById('studentsTableBody');
+            tableBody.innerHTML = '';
+            
+            if (studentsData.length === 0) {
+                const emptyRow = document.createElement('tr');
+                emptyRow.innerHTML = '<td colspan="4">لا يوجد طلاب في هذا الفصل</td>';
+                tableBody.appendChild(emptyRow);
+                return;
+            }
+            
+            studentsData.forEach((student, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${student.student_id || '-'}</td>
+                    <td>${student.name}</td>
+                    <td class="status-cell">
+                        ${student.status || '-'}
+                        ${student.last_attendance_date ? 
+                            `<div class="attendance-history">آخر تحديث: ${student.last_attendance_date}</div>` : 
+                            ''}
+                    </td>
+                    <td class="action-buttons">
+                        <button class="btn present-btn" onclick="markAttendance(${student.id}, 'حاضر')">
+                            <i class="fas fa-check"></i> حضور
+                        </button>
+                        <button class="btn absent-btn" onclick="markAttendance(${student.id}, 'غائب')">
+                            <i class="fas fa-times"></i> غياب
+                        </button>
+                        <button class="btn print-btn" onclick="generateStudentReport(${student.id})">
+                            <i class="fas fa-print"></i> تقرير
+                        </button>
+                        <button class="btn behavior-btn" onclick="manageBehavior(${student.id})">
+                            <i class="fas fa-user"></i> سلوك
+                        </button>
+                        <button class="btn whatsapp-btn" onclick="sendWhatsAppMessage(${student.id})">
+                            <i class="fab fa-whatsapp"></i> واتساب
+                        </button>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // تسجيل حضور أو غياب طالب
+        async function markAttendance(studentId, status) {
+            try {
+                const response = await fetch('api/attendance.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        student_id: studentId,
+                        status: status,
+                        date: attendanceDate
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // تحديث البيانات في الذاكرة
+                    const studentIndex = studentsData.findIndex(s => s.id === studentId);
+                    if (studentIndex !== -1) {
+                        studentsData[studentIndex].status = status;
+                        studentsData[studentIndex].last_attendance_date = attendanceDate;
+                    }
+                    
+                    // تحديث العرض
+                    displayStudentsData();
+                    
+                    Swal.fire({
+                        title: 'تم التسجيل',
+                        text: data.message,
+                        icon: 'success',
+                        timer: 1500
+                    });
+                } else {
+                    showError('فشل في تسجيل الحضور: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                showError('فشل في الاتصال بالخادم: ' + error.message);
+            }
+        }
+        
+        // حفظ كل بيانات الحضور
+        async function saveAllAttendance() {
+            // التحقق من وجود تغييرات للحفظ
+            const studentsWithStatus = studentsData.filter(student => student.status);
+            
+            if (studentsWithStatus.length === 0) {
+                Swal.fire({
+                    title: 'تنبيه',
+                    text: 'لم تقم بتسجيل أي حضور أو غياب بعد',
+                    icon: 'warning'
+                });
+                return;
+            }
+            
+            Swal.fire({
+                title: 'جاري الحفظ',
+                text: 'يرجى الانتظار...',
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+            
+            try {
+                // تم بالفعل حفظ البيانات عند كل تسجيل حضور/غياب
+                Swal.fire({
+                    title: 'تم الحفظ',
+                    text: 'تم حفظ سجل الحضور والغياب بنجاح',
+                    icon: 'success',
+                    confirmButtonText: 'موافق'
+                });
+            } catch (error) {
+                showError('فشل في حفظ البيانات: ' + error.message);
+            }
+        }
+        
+        // إدارة سلوك الطالب
+        function manageBehavior(studentId) {
+            const student = studentsData.find(s => s.id === studentId);
+            if (!student) return;
+
+            Swal.fire({
+                title: 'إدارة السلوك',
+                html: `
+                    <h3>الطالب: ${student.name}</h3>
+                    <div class="behavior-form">
+                        <select id="behaviorType" class="swal2-input">
+                            <option value="إيجابي">سلوك إيجابي</option>
+                            <option value="سلبي">سلوك سلبي</option>
+                        </select>
+                        <textarea id="behaviorNote" class="swal2-textarea" placeholder="ملاحظات السلوك"></textarea>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'حفظ',
+                cancelButtonText: 'إلغاء',
+                preConfirm: () => {
+                    return {
+                        type: document.getElementById('behaviorType').value,
+                        note: document.getElementById('behaviorNote').value
+                    };
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    saveBehaviorNote(studentId, result.value.type, result.value.note);
+                }
+            });
+        }
+
+        // حفظ ملاحظة سلوكية
+        async function saveBehaviorNote(studentId, type, note) {
+            try {
+                const response = await fetch('api/behaviors.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        student_id: studentId,
+                        type: type,
+                        note: note,
+                        date: attendanceDate
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    Swal.fire('تم الحفظ', 'تم حفظ ملاحظات السلوك بنجاح', 'success');
+                } else {
+                    showError('فشل في حفظ ملاحظات السلوك: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                showError('فشل في الاتصال بالخادم: ' + error.message);
+            }
+        }
+        
+        // إرسال رسالة واتساب
+        function sendWhatsAppMessage(studentId) {
+            const student = studentsData.find(s => s.id === studentId);
+            if (!student) return;
+
+            let present = student.present_count || 0;
+            let absent = student.absent_count || 0;
+            
+            const message = encodeURIComponent(`
+تقرير الحضور والغياب
+اسم الطالب: ${student.name}
+الفصل: ${student.class_name}
+الحضور اليوم: ${student.status || 'غير مسجل'}
+إحصائية الأسبوع:
+- عدد مرات الحضور: ${present}
+- عدد مرات الغياب: ${absent}
+            `);
+
+            window.open(`https://wa.me/?text=${message}`, '_blank');
+        }
+        
+        // طباعة تقرير للطالب
+        async function generateStudentReport(studentId) {
+            try {
+                const response = await fetch(`api/reports.php?type=student&student_id=${studentId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const student = data.student;
+                    const attendance = data.attendance;
+                    const behaviors = data.behaviors;
+                    
+                    let reportContent = `
+    تقرير الطالب
+    ==================
+    اسم الطالب: ${student.name}
+    الفصل: ${student.class_name}
+    ==================
+    عدد مرات الحضور: ${attendance.present_count}
+    عدد مرات الغياب: ${attendance.absent_count}
+    ==================
+    سجل الحضور والغياب:`;
+                    
+                    if (attendance.records && attendance.records.length > 0) {
+                        attendance.records.forEach(record => {
+                            reportContent += `\n${record.date}: ${record.status}`;
+                        });
+                    } else {
+                        reportContent += '\nلا يوجد سجل حضور وغياب';
+                    }
+
+                    // إضافة سجل السلوك
+                    reportContent += `\n\n==================
+    سجل السلوك:`;
+                    
+                    if (behaviors && behaviors.length > 0) {
+                        behaviors.forEach(behavior => {
+                            reportContent += `\n${behavior.date}:
+            النوع: ${behavior.type}
+            الملاحظة: ${behavior.note}
+            `;
+                        });
+                    } else {
+                        reportContent += '\nلا يوجد سجل سلوك';
+                    }
+
+                    // إنشاء نافذة طباعة
+                    const printWindow = window.open('', '', 'width=600,height=600');
+                    printWindow.document.write(`
+                        <html dir="rtl">
+                            <head>
+                                <title>تقرير الطالب ${student.name}</title>
+                                <style>
+                                    body { 
+                                        font-family: Arial; 
+                                        padding: 20px; 
+                                    }
+                                    pre { 
+                                        white-space: pre-wrap; 
+                                        font-family: Arial;
+                                    }
+                                </style>
+                            </head>
+                            <body>
+                                <pre>${reportContent}</pre>
+                            </body>
+                        </html>
+                    `);
+                    printWindow.document.close();
+                    printWindow.print();
+                } else {
+                    showError('فشل في جلب بيانات التقرير: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                showError('فشل في الاتصال بالخادم: ' + error.message);
+            }
+        }
+        
+        // إنشاء تقرير الفصل
+        async function generateClassReport() {
+            if (!currentClassId) return;
+            
+            try {
+                const response = await fetch(`api/reports.php?type=class&class_id=${currentClassId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const classData = data.class;
+                    const students = data.students;
+                    let totalPresent = data.total_present;
+                    let totalAbsent = data.total_absent;
+                    
+                    let reportContent = `
+    إحصائية الحضور والغياب - ${classData.name}
+    ==============================
+    إجمالي عدد الطلاب: ${students.length}
+    إجمالي الحضور: ${totalPresent}
+    إجمالي الغياب: ${totalAbsent}
+    ==============================
+    تفاصيل الطلاب:
+    `;
+
+                    students.forEach(student => {
+                        reportContent += `\n${student.name}: حضور (${student.present_count}) - غياب (${student.absent_count})`;
+                    });
+
+                    const printWindow = window.open('', '', 'width=600,height=600');
+                    printWindow.document.write(`
+                        <html dir="rtl">
+                            <head>
+                                <title>تقرير ${classData.name}</title>
+                                <style>
+                                    body { font-family: Arial; padding: 20px; }
+                                    pre { white-space: pre-wrap; }
+                                </style>
+                            </head>
+                            <body>
+                                <pre>${reportContent}</pre>
+                            </body>
+                        </html>
+                    `);
+                    printWindow.document.close();
+                    printWindow.print();
+                } else {
+                    showError('فشل في جلب بيانات التقرير: ' + (data.error || 'خطأ غير معروف'));
+                }
+            } catch (error) {
+                showError('فشل في الاتصال بالخادم: ' + error.message);
+            }
+        }
+        
+        // تنزيل نموذج Excel
+        function downloadExcelTemplate() {
+            const wb = XLSX.utils.book_new();
+            const wsData = [
+                ['رقم الطالب', 'اسم الطالب', 'الفصل'],
+                [1, '', currentClass],
+                [2, '', currentClass]
+            ];
+            
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            XLSX.utils.book_append_sheet(wb, ws, 'الطلاب');
+            XLSX.writeFile(wb, 'نموذج_قائمة_الطلاب.xlsx');
+        }
+        
+        // استيراد من Excel
+        function importFromExcel() {
+            document.getElementById('excelFileInput').click();
+        }
+        
+        // معالجة ملف Excel
+        function handleExcelFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                
+                if (jsonData.length === 0) {
+                    showError('لم يتم العثور على بيانات في الملف');
+                    return;
+                }
+                
+                try {
+                    // إرسال البيانات للخادم لمعالجتها
+                    const response = await fetch('api/students.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            action: 'import',
+                            class_id: currentClassId,
+                            students: jsonData
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        Swal.fire('تم', 'تم استيراد البيانات بنجاح', 'success');
+                        // إعادة تحميل بيانات الطلاب
+                        fetchStudents(currentClassId);
+                    } else {
+                        showError('فشل في استيراد البيانات: ' + (result.error || 'خطأ غير معروف'));
+                    }
+                } catch (error) {
+                    showError('فشل في معالجة الملف: ' + error.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+        
+        // تصدير البيانات إلى Excel
+        function exportAttendance() {
+            if (!currentClassId || studentsData.length === 0) {
+                showError('لا توجد بيانات للتصدير');
+                return;
+            }
+            
+            const wb = XLSX.utils.book_new();
+            const wsData = studentsData.map(student => [
+                student.student_id || '',
+                student.name,
+                student.class_name || currentClass,
+                student.status || '-'
+            ]);
+            
+            wsData.unshift(['رقم الطالب', 'اسم الطالب', 'الفصل', 'الحالة']);
+            
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            XLSX.utils.book_append_sheet(wb, ws, currentClass);
+            XLSX.writeFile(wb, `سجل_الحضور_${currentClass}_${attendanceDate}.xlsx`);
+        }
+        
+        // عرض رسالة خطأ
+        function showError(message) {
+            Swal.fire({
+                title: 'خطأ',
+                text: message,
+                icon: 'error'
+            });
+        }
+    </script>
+</body>
+</html>
